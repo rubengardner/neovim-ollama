@@ -99,7 +99,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case responseChunkMsg:
-		rendered, err := glamour.Render(string(msg), "dark")
+		rendered, err := glamour.Render(string(msg), "tokyo-night")
 		if err != nil {
 			m.viewport.SetContent(string(msg))
 		} else {
