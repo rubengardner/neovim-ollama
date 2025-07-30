@@ -21,6 +21,7 @@ type Model struct {
 	isStreaming  bool
 	err          error
 	streamCancel context.CancelFunc
+	history      []string
 }
 
 type (
@@ -29,9 +30,12 @@ type (
 )
 
 var (
-	borderStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("63"))
-	inputStyle  = borderStyle.Copy().Padding(0, 1)
-	outputStyle = borderStyle.Copy().Padding(0, 1).MarginBottom(1)
+	borderStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("63"))
+	inputStyle    = borderStyle.Padding(0, 1)
+	outputStyle   = borderStyle.Padding(0, 1).MarginBottom(1)
+	promptStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D7FF")).Bold(true)
+	responseStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ADFF2F"))
+	divider       = lipgloss.NewStyle().Foreground(lipgloss.Color("#444")).Render(strings.Repeat("─", 40))
 )
 
 func InitialModel() Model {
@@ -84,8 +88,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.streamCancel = cancel
 			m.input.SetValue("")
 			m.viewport.SetContent("")
+			m.history = append(m.history, promptStyle.Render("You: "+text), "Thinking...")
+			m.viewport.SetContent(strings.Join(m.history, "\n\n"+divider+"\n\n"))
 			m.isStreaming = true
 			return m, streamResponse(ctx, text)
+		case "up":
+			m.viewport.ScrollUp(1)
+		case "down":
+			m.viewport.ScrollDown(1)
 		}
 
 	case responseChunkMsg:
@@ -93,7 +103,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err != nil {
 			m.viewport.SetContent(string(msg))
 		} else {
-			m.viewport.SetContent(rendered)
+			m.history[len(m.history)-1] = responseStyle.Render(rendered)
+			m.viewport.SetContent(strings.Join(m.history, "\n\n"+divider+"\n\n"))
 		}
 		m.isStreaming = false
 		return m, nil
