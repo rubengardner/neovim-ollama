@@ -1,71 +1,138 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
-	"github.com/jroimartin/gocui"
+	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/rubengardner/neovim-ollama/cmd/neovim-ollama/ollama"
 )
 
-func Layout(g *gocui.Gui) error {
-	maxX, maxY := g.Size()
-
-	if v, err := g.SetView("output", 0, 0, maxX-1, maxY-5); err != nil && err != gocui.ErrUnknownView {
-		return err
-	} else {
-		v.Wrap = true
-		v.Autoscroll = true
-		v.Title = "Model Response"
-	}
-
-	if v, err := g.SetView("input", 0, maxY-4, maxX-1, maxY-1); err != nil && err != gocui.ErrUnknownView {
-		return err
-	} else {
-		v.Editable = true
-		v.Title = "Enter Prompt"
-		_, _ = g.SetCurrentView("input")
-	}
-
-	return nil
+type Model struct {
+	input        textinput.Model
+	viewport     viewport.Model
+	width        int
+	height       int
+	isStreaming  bool
+	err          error
+	streamCancel context.CancelFunc
 }
 
-func SendPrompt(g *gocui.Gui, v *gocui.View) error {
-	text := strings.TrimSpace(v.Buffer())
-	v.Clear()
-	v.SetCursor(0, 0)
+type (
+	responseChunkMsg string
+	errorMsg         error
+)
 
-	if text == "" {
-		return nil
+var (
+	borderStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("63"))
+	inputStyle  = borderStyle.Copy().Padding(0, 1)
+	outputStyle = borderStyle.Copy().Padding(0, 1).MarginBottom(1)
+)
+
+func InitialModel() Model {
+	ti := textinput.New()
+	ti.Placeholder = "Enter prompt"
+	ti.Focus()
+	ti.CharLimit = 500
+
+	vp := viewport.New(0, 0)
+
+	return Model{
+		input:    ti,
+		viewport: vp,
 	}
+}
 
-	go func() {
-		var fullResponse strings.Builder
+func (m Model) Init() tea.Cmd {
+	return textinput.Blink
+}
 
-		err := ollama.StreamGenerate(text, func(chunk ollama.StreamChunk) {
-			fullResponse.WriteString(chunk.Response)
-		})
-		if err != nil {
-			PrintToOutput(g, fmt.Sprintf("Error: %v\n", err))
-			return
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.input.Width = m.width - 4
+		m.viewport.Width = m.width - 4
+		m.viewport.Height = m.height - 5
+		m.viewport.YPosition = 1
+		m.viewport.SetContent("")
+		return m, nil
+
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc":
+			if m.isStreaming && m.streamCancel != nil {
+				m.streamCancel()
+			}
+			return m, tea.Quit
+
+		case "enter":
+			text := strings.TrimSpace(m.input.Value())
+			if text == "" || m.isStreaming {
+				return m, nil
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			m.streamCancel = cancel
+			m.input.SetValue("")
+			m.viewport.SetContent("")
+			m.isStreaming = true
+			return m, streamResponse(ctx, text)
 		}
 
-		markdown := renderMarkdown(fullResponse.String())
-		PrintToOutput(g, markdown)
-	}()
+	case responseChunkMsg:
+		rendered, err := glamour.Render(string(msg), "dark")
+		if err != nil {
+			m.viewport.SetContent(string(msg))
+		} else {
+			m.viewport.SetContent(rendered)
+		}
+		m.isStreaming = false
+		return m, nil
 
-	return nil
+	case errorMsg:
+		m.err = msg
+		m.isStreaming = false
+		return m, nil
+	}
+
+	var inputCmd tea.Cmd
+	m.input, inputCmd = m.input.Update(msg)
+	m.viewport, _ = m.viewport.Update(msg)
+
+	cmds = append(cmds, inputCmd)
+	return m, tea.Batch(cmds...)
 }
 
-func PrintToOutput(g *gocui.Gui, text string) {
-	g.Update(func(g *gocui.Gui) error {
-		v, _ := g.View("output")
-		v.Clear()
-		fmt.Fprint(v, text)
-		return nil
-	})
+func (m Model) View() string {
+	outputBox := outputStyle.Render(m.viewport.View())
+	inputBox := inputStyle.Render(m.input.View())
+	return fmt.Sprintf("%s\n%s", outputBox, inputBox)
 }
 
-func Quit(g *gocui.Gui, v *gocui.View) error {
-	return gocui.ErrQuit
+func streamResponse(ctx context.Context, prompt string) tea.Cmd {
+	return func() tea.Msg {
+		var builder strings.Builder
+
+		err := ollama.StreamGenerate(prompt, func(chunk ollama.StreamChunk) {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				builder.WriteString(chunk.Response)
+			}
+		})
+		if err != nil {
+			return errorMsg(err)
+		}
+		return responseChunkMsg(builder.String())
+	}
 }
