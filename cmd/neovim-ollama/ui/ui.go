@@ -2,10 +2,10 @@ package ui
 
 import (
 	"fmt"
-	"neovim-ollama/ollama"
 	"strings"
 
 	"github.com/jroimartin/gocui"
+	"github.com/rubengardner/neovim-ollama/cmd/neovim-ollama/ollama"
 )
 
 func Layout(g *gocui.Gui) error {
@@ -40,14 +40,18 @@ func SendPrompt(g *gocui.Gui, v *gocui.View) error {
 	}
 
 	go func() {
+		var fullResponse strings.Builder
+
 		err := ollama.StreamGenerate(text, func(chunk ollama.StreamChunk) {
-			PrintToOutput(g, chunk.Response)
+			fullResponse.WriteString(chunk.Response)
 		})
 		if err != nil {
 			PrintToOutput(g, fmt.Sprintf("Error: %v\n", err))
-		} else {
-			PrintToOutput(g, "\n\n")
+			return
 		}
+
+		markdown := renderMarkdown(fullResponse.String())
+		PrintToOutput(g, markdown)
 	}()
 
 	return nil
@@ -56,6 +60,7 @@ func SendPrompt(g *gocui.Gui, v *gocui.View) error {
 func PrintToOutput(g *gocui.Gui, text string) {
 	g.Update(func(g *gocui.Gui) error {
 		v, _ := g.View("output")
+		v.Clear()
 		fmt.Fprint(v, text)
 		return nil
 	})

@@ -2,9 +2,9 @@ package main
 
 import (
 	"log"
-	"ui"
 
 	"github.com/jroimartin/gocui"
+	"github.com/rubengardner/neovim-ollama/cmd/neovim-ollama/ui"
 )
 
 func main() {
