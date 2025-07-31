@@ -5,7 +5,7 @@ import (
 )
 
 func renderMarkdown(input string) string {
-	out, err := glamour.Render(input, "dark")
+	out, err := glamour.Render(input, "tokyo-night")
 	if err != nil {
 		return input
 	}

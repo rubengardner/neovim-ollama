@@ -1,32 +1,28 @@
 package ui
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/rubengardner/neovim-ollama/cmd/neovim-ollama/ollama"
 )
 
 type Model struct {
-	input        textinput.Model
-	viewport     viewport.Model
-	width        int
-	height       int
-	isStreaming  bool
-	err          error
-	streamCancel context.CancelFunc
-	history      []string
+	input    textinput.Model
+	viewport viewport.Model
+	width    int
+	height   int
+	history  []string
+	err      error
 }
 
 type (
-	responseChunkMsg string
-	errorMsg         error
+	responseMsg string
+	errorMsg    error
 )
 
 var (
@@ -73,45 +69,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc":
-			if m.isStreaming && m.streamCancel != nil {
-				m.streamCancel()
-			}
 			return m, tea.Quit
 
 		case "enter":
 			text := strings.TrimSpace(m.input.Value())
-			if text == "" || m.isStreaming {
+			if text == "" {
 				return m, nil
 			}
-
-			ctx, cancel := context.WithCancel(context.Background())
-			m.streamCancel = cancel
 			m.input.SetValue("")
-			m.viewport.SetContent("")
-			m.history = append(m.history, promptStyle.Render("You: "+text), "Thinking...")
+			m.history = append(m.history, promptStyle.Render("You: "+text))
 			m.viewport.SetContent(strings.Join(m.history, "\n\n"+divider+"\n\n"))
-			m.isStreaming = true
-			return m, streamResponse(ctx, text)
+			return m, fetchResponse(text)
 		case "up":
 			m.viewport.ScrollUp(1)
 		case "down":
 			m.viewport.ScrollDown(1)
 		}
 
-	case responseChunkMsg:
-		rendered, err := glamour.Render(string(msg), "tokyo-night")
-		if err != nil {
-			m.viewport.SetContent(string(msg))
-		} else {
-			m.history[len(m.history)-1] = responseStyle.Render(rendered)
-			m.viewport.SetContent(strings.Join(m.history, "\n\n"+divider+"\n\n"))
-		}
-		m.isStreaming = false
+	case responseMsg:
+		rendered := renderMarkdown(string(msg))
+		m.history = append(m.history, responseStyle.Render(rendered))
+		m.viewport.SetContent(strings.Join(m.history, "\n\n"+divider+"\n\n"))
 		return m, nil
 
 	case errorMsg:
 		m.err = msg
-		m.isStreaming = false
 		return m, nil
 	}
 
@@ -129,21 +111,12 @@ func (m Model) View() string {
 	return fmt.Sprintf("%s\n%s", outputBox, inputBox)
 }
 
-func streamResponse(ctx context.Context, prompt string) tea.Cmd {
+func fetchResponse(prompt string) tea.Cmd {
 	return func() tea.Msg {
-		var builder strings.Builder
-
-		err := ollama.StreamGenerate(prompt, func(chunk ollama.StreamChunk) {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				builder.WriteString(chunk.Response)
-			}
-		})
+		resp, err := ollama.Generate(prompt)
 		if err != nil {
 			return errorMsg(err)
 		}
-		return responseChunkMsg(builder.String())
+		return responseMsg(resp)
 	}
 }

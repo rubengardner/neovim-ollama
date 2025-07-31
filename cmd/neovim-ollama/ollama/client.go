@@ -3,7 +3,6 @@ package ollama
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 )
@@ -14,46 +13,37 @@ type GenerateRequest struct {
 	Stream bool   `json:"stream"`
 }
 
-type StreamChunk struct {
+type GenerateResponse struct {
 	Response string `json:"response"`
-	Done     bool   `json:"done"`
 }
 
-type StreamCallback func(chunk StreamChunk)
-
-func StreamGenerate(prompt string, onChunk StreamCallback) error {
+func Generate(prompt string) (string, error) {
 	reqBody := GenerateRequest{
 		Model:  "llama3",
 		Prompt: prompt,
-		Stream: true,
+		Stream: false,
 	}
 
 	data, err := json.Marshal(reqBody)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	resp, err := http.Post("http://localhost:11434/api/generate", "application/json", bytes.NewBuffer(data))
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer resp.Body.Close()
 
-	decoder := json.NewDecoder(resp.Body)
-
-	for {
-		var chunk StreamChunk
-		if err := decoder.Decode(&chunk); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return err
-		}
-		onChunk(chunk)
-		if chunk.Done {
-			break
-		}
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
 	}
 
-	return nil
+	var genResp GenerateResponse
+	if err := json.Unmarshal(bodyBytes, &genResp); err != nil {
+		return "", err
+	}
+
+	return genResp.Response, nil
 }
