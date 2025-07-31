@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -12,12 +13,14 @@ import (
 )
 
 type Model struct {
-	input    textinput.Model
-	viewport viewport.Model
-	width    int
-	height   int
-	history  []string
-	err      error
+	input     textinput.Model
+	viewport  viewport.Model
+	width     int
+	height    int
+	isWaiting bool
+	err       error
+	spinner   spinner.Model
+	history   []string
 }
 
 type (
@@ -41,15 +44,19 @@ func InitialModel() Model {
 	ti.CharLimit = 500
 
 	vp := viewport.New(0, 0)
+	sp := spinner.New()
+	sp.Spinner = spinner.Pulse
+	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
 
 	return Model{
 		input:    ti,
 		viewport: vp,
+		spinner:  sp,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return textinput.Blink
+	return tea.Batch(textinput.Blink, m.spinner.Tick)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -63,23 +70,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.Width = m.width - 4
 		m.viewport.Height = m.height - 5
 		m.viewport.YPosition = 1
-		m.viewport.SetContent("")
+		m.viewport.SetContent(strings.Join(m.history, "\n\n"+divider+"\n\n"))
 		return m, nil
 
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			return m, tea.Quit
-
 		case "enter":
 			text := strings.TrimSpace(m.input.Value())
-			if text == "" {
+			if text == "" || m.isWaiting {
 				return m, nil
 			}
+			m.isWaiting = true
 			m.input.SetValue("")
-			m.history = append(m.history, promptStyle.Render("You: "+text))
+			m.history = append(m.history, promptStyle.Render("You: "+text), m.spinner.View()+" Thinking...")
 			m.viewport.SetContent(strings.Join(m.history, "\n\n"+divider+"\n\n"))
-			return m, fetchResponse(text)
+			cmds = append(cmds, fetchResponse(text), m.spinner.Tick)
+			return m, tea.Batch(cmds...)
 		case "up":
 			m.viewport.ScrollUp(1)
 		case "down":
@@ -87,21 +95,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case responseMsg:
-		rendered := renderMarkdown(string(msg))
-		m.history = append(m.history, responseStyle.Render(rendered))
+		m.isWaiting = false
+		m.history[len(m.history)-1] = responseStyle.Render(renderMarkdown(string(msg)))
 		m.viewport.SetContent(strings.Join(m.history, "\n\n"+divider+"\n\n"))
 		return m, nil
 
 	case errorMsg:
-		m.err = msg
+		m.isWaiting = false
+		m.history[len(m.history)-1] = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("Error: " + msg.Error())
+		m.viewport.SetContent(strings.Join(m.history, "\n\n"+divider+"\n\n"))
 		return m, nil
+	}
+
+	if m.isWaiting {
+		var spinCmd tea.Cmd
+		m.spinner, spinCmd = m.spinner.Update(msg)
+		cmds = append(cmds, spinCmd)
+		m.history[len(m.history)-1] = m.spinner.View() + " Thinking..."
+		m.viewport.SetContent(strings.Join(m.history, "\n\n"+divider+"\n\n"))
 	}
 
 	var inputCmd tea.Cmd
 	m.input, inputCmd = m.input.Update(msg)
 	m.viewport, _ = m.viewport.Update(msg)
-
 	cmds = append(cmds, inputCmd)
+
 	return m, tea.Batch(cmds...)
 }
 
