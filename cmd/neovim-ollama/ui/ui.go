@@ -9,7 +9,6 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/rubengardner/neovim-ollama/cmd/neovim-ollama/ollama"
 )
 
 type Model struct {
@@ -20,7 +19,7 @@ type Model struct {
 	isWaiting bool
 	err       error
 	spinner   spinner.Model
-	history   []string
+	history   []ChatMessage
 }
 
 type (
@@ -45,9 +44,8 @@ func InitialModel() Model {
 
 	vp := viewport.New(0, 0)
 	sp := spinner.New()
-	sp.Spinner = spinner.Pulse
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
-
+	sp.Spinner = spinner.Line
+	sp.Style = lipgloss.NewStyle()
 	return Model{
 		input:    ti,
 		viewport: vp,
@@ -70,9 +68,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.Width = m.width - 4
 		m.viewport.Height = m.height - 5
 		m.viewport.YPosition = 1
-		m.viewport.SetContent(strings.Join(m.history, "\n\n"+divider+"\n\n"))
+		m.viewport.SetContent(renderHistory(m.history))
 		return m, nil
-
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc":
@@ -84,9 +81,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.isWaiting = true
 			m.input.SetValue("")
-			m.history = append(m.history, promptStyle.Render("You: "+text), m.spinner.View()+" Thinking...")
-			m.viewport.SetContent(strings.Join(m.history, "\n\n"+divider+"\n\n"))
-			cmds = append(cmds, fetchResponse(text), m.spinner.Tick)
+			m.history = append(m.history, ChatMessage{Role: "user", Content: text}, ChatMessage{Role: "assistant", Content: ""})
+			m.viewport.SetContent(renderHistory(m.history))
+			cmds = append(cmds, fetchResponse(text, m.history), m.spinner.Tick)
 			return m, tea.Batch(cmds...)
 		case "up":
 			m.viewport.ScrollUp(1)
@@ -96,14 +93,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case responseMsg:
 		m.isWaiting = false
-		m.history[len(m.history)-1] = responseStyle.Render(renderMarkdown(string(msg)))
-		m.viewport.SetContent(strings.Join(m.history, "\n\n"+divider+"\n\n"))
+		m.input.SetValue("")
+		m.input.CursorEnd()
+		m.input.Focus()
+		m.history[len(m.history)-1].Content = string(msg)
+		m.viewport.SetContent(renderHistory(m.history))
 		return m, nil
 
 	case errorMsg:
 		m.isWaiting = false
-		m.history[len(m.history)-1] = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render("Error: " + msg.Error())
-		m.viewport.SetContent(strings.Join(m.history, "\n\n"+divider+"\n\n"))
+		m.input.SetValue("")
+		m.input.Focus()
+		m.history[len(m.history)-1].Content = "Error: " + msg.Error()
+		m.viewport.SetContent(renderHistory(m.history))
 		return m, nil
 	}
 
@@ -111,8 +113,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var spinCmd tea.Cmd
 		m.spinner, spinCmd = m.spinner.Update(msg)
 		cmds = append(cmds, spinCmd)
-		m.history[len(m.history)-1] = m.spinner.View() + " Thinking..."
-		m.viewport.SetContent(strings.Join(m.history, "\n\n"+divider+"\n\n"))
+		m.input.SetValue(m.spinner.View() + " Thinking...")
+		m.input.SetCursor(0)
 	}
 
 	var inputCmd tea.Cmd
@@ -125,16 +127,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	outputBox := outputStyle.Render(m.viewport.View())
+	var spinnerLine string
 	inputBox := inputStyle.Render(m.input.View())
-	return fmt.Sprintf("%s\n%s", outputBox, inputBox)
-}
-
-func fetchResponse(prompt string) tea.Cmd {
-	return func() tea.Msg {
-		resp, err := ollama.Generate(prompt)
-		if err != nil {
-			return errorMsg(err)
-		}
-		return responseMsg(resp)
-	}
+	return fmt.Sprintf("%s\n%s%s", outputBox, spinnerLine, inputBox)
 }

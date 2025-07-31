@@ -1,49 +1,33 @@
 package ollama
 
 import (
-	"bytes"
-	"encoding/json"
-	"io"
-	"net/http"
+	"context"
+
+	"github.com/ollama/ollama/api"
 )
 
-type GenerateRequest struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
-	Stream bool   `json:"stream"`
-}
-
-type GenerateResponse struct {
-	Response string `json:"response"`
-}
-
-func Generate(prompt string) (string, error) {
-	reqBody := GenerateRequest{
-		Model:  "llama3",
-		Prompt: prompt,
-		Stream: false,
-	}
-
-	data, err := json.Marshal(reqBody)
+func Generate(messages []api.Message) (string, error) {
+	client, err := api.ClientFromEnvironment()
 	if err != nil {
 		return "", err
 	}
 
-	resp, err := http.Post("http://localhost:11434/api/generate", "application/json", bytes.NewBuffer(data))
+	stream := false
+	req := &api.ChatRequest{
+		Model:    "llama3",
+		Messages: messages,
+		Stream:   &stream,
+	}
+
+	var fullResponse string
+	ctx := context.Background()
+	err = client.Chat(ctx, req, func(resp api.ChatResponse) error {
+		fullResponse = resp.Message.Content
+		return nil
+	})
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	var genResp GenerateResponse
-	if err := json.Unmarshal(bodyBytes, &genResp); err != nil {
-		return "", err
-	}
-
-	return genResp.Response, nil
+	return fullResponse, nil
 }
