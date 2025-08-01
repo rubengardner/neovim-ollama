@@ -6,22 +6,34 @@ import (
 	"github.com/rubengardner/neovim-ollama/cmd/neovim-ollama/ollama"
 )
 
-func fetchResponse(prompt string, history []ChatMessage) tea.Cmd {
+func fetchResponseWithContext(fullPrompt string, displayHistory []ChatMessage) tea.Cmd {
 	return func() tea.Msg {
 		messages := []api.Message{
 			{Role: "system", Content: "You are a helpful assistant."},
 		}
 
-		for _, msg := range history {
-			messages = append(messages, api.Message{
-				Role:    msg.Role,
-				Content: msg.Content,
-			})
+		for i, msg := range displayHistory {
+			if (msg.Role == "assistant" && msg.Content == "") ||
+				(msg.Role == "user" && i == len(displayHistory)-2) {
+				continue
+			}
+
+			if msg.Role == "user" && i < len(displayHistory)-2 {
+				messages = append(messages, api.Message{
+					Role:    msg.Role,
+					Content: msg.Content,
+				})
+			} else if msg.Role == "assistant" {
+				messages = append(messages, api.Message{
+					Role:    msg.Role,
+					Content: msg.Content,
+				})
+			}
 		}
 
 		messages = append(messages, api.Message{
 			Role:    "user",
-			Content: prompt,
+			Content: fullPrompt,
 		})
 
 		resp, err := ollama.Generate(messages)
