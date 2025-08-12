@@ -1,4 +1,4 @@
-# 🧠 neovim-ollama
+# 🧠 HIX: neovim-ollama
 
 **Connect your local LLMs directly within Neovim.**
 
