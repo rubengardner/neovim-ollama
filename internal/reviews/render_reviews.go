@@ -10,7 +10,8 @@ import (
 	"github.com/rubengardner/neovim-ollama/internal/model"
 )
 
-func renderReviewChanges(m *model.Model, styles *ui.Styles) string {
+func RenderReviewChanges(m *model.Model) string {
+	styles := ui.NewStyles()
 	if len(m.ProposedChanges) == 0 {
 		return "No changes to review"
 	}

@@ -1,20 +1,19 @@
 package ui
 
-import "strings"
+import (
+	"strings"
 
-type ChatMessage struct {
-	Role    string
-	Content string
-}
+	"github.com/rubengardner/neovim-ollama/internal/files"
+)
 
-func renderHistory(history []ChatMessage) string {
+func RenderHistory(chatMessage []files.ChatMessage) string {
 	var rendered []string
-	for _, msg := range history {
+	for _, msg := range chatMessage {
 		switch msg.Role {
 		case "user":
 			rendered = append(rendered, promptStyle.Render("You: "+msg.Content))
 		case "assistant":
-			rendered = append(rendered, responseStyle.Render(renderMarkdown(msg.Content)))
+			rendered = append(rendered, responseStyle.Render(RenderMarkdown(msg.Content)))
 		default:
 			rendered = append(rendered, msg.Content)
 		}

@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/rubengardner/neovim-ollama/cmd/neovim-ollama/ui"
+	"github.com/rubengardner/neovim-ollama/internal/files"
 )
 
 type Mode int
@@ -19,28 +19,6 @@ const (
 	ReviewMode
 )
 
-type ChatMessage struct {
-	Role    string
-	Content string
-}
-
-type FileItem struct {
-	Name     string
-	Path     string
-	IsDir    bool
-	Selected bool
-}
-
-type FileChange struct {
-	FilePath     string
-	OriginalCode string
-	ProposedCode string
-	Description  string
-	Accepted     *bool // nil = pending, true = accepted, false = rejected
-	LineStart    int
-	LineEnd      int
-}
-
 type Model struct {
 	Input           textinput.Model
 	Viewport        viewport.Model
@@ -49,24 +27,22 @@ type Model struct {
 	IsWaiting       bool
 	Err             error
 	Spinner         spinner.Model
-	History         []ChatMessage
+	History         []files.ChatMessage
 	Mode            Mode
-	Files           []FileItem
+	Files           []files.FileItem
 	FilesCursor     int
 	CurrentDir      string
 	SelectedFiles   []string
 	FilesViewport   viewport.Model
-	ProposedChanges []FileChange
+	ProposedChanges []files.FileChange
 	ReviewCursor    int
 	ReviewViewport  viewport.Model
-	Styles          ui.Styles
 }
 
 type (
 	ResponseMsg      string
 	ErrorMsg         error
-	FilesLoadedMsg   []FileItem
-	ReviewChangesMsg []FileChange
+	ReviewChangesMsg []files.FileChange
 )
 
 func InitialModel() Model {
@@ -94,7 +70,7 @@ func InitialModel() Model {
 		Mode:            ChatMode,
 		CurrentDir:      currentDir,
 		SelectedFiles:   []string{},
-		ProposedChanges: []FileChange{},
+		ProposedChanges: []files.FileChange{},
 	}
 }
 

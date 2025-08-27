@@ -6,21 +6,18 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/rubengardner/neovim-ollama/internal/model"
 )
 
-func loadFiles(dir string) tea.Cmd {
+func LoadFiles(dir string) tea.Cmd {
 	return func() tea.Msg {
 		files, err := os.ReadDir(dir)
 		if err != nil {
 			return err
 		}
 
-		var fileItems []model.FileItem
-
-		// Add parent directory if not at root
+		var fileItems []FileItem
 		if dir != "/" && dir != "." {
-			fileItems = append(fileItems, model.FileItem{
+			fileItems = append(fileItems, FileItem{
 				Name:  "..",
 				Path:  filepath.Dir(dir),
 				IsDir: true,
@@ -28,19 +25,17 @@ func loadFiles(dir string) tea.Cmd {
 		}
 
 		for _, file := range files {
-			// Skip hidden files and directories
 			if strings.HasPrefix(file.Name(), ".") {
 				continue
 			}
 
-			fileItems = append(fileItems, model.FileItem{
+			fileItems = append(fileItems, FileItem{
 				Name:  file.Name(),
 				Path:  filepath.Join(dir, file.Name()),
 				IsDir: file.IsDir(),
 			})
 		}
-
-		return model.FilesLoadedMsg(fileItems)
+		return fileItems
 	}
 }
 

@@ -1,6 +1,9 @@
 package model
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rubengardner/neovim-ollama/cmd/neovim-ollama/ui"
+)
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
@@ -21,9 +24,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ReviewViewport.YPosition = 1
 
 		if m.Mode == ChatMode {
-			m.Viewport.SetContent(renderHistory(m.History))
+			m.Viewport.SetContent(ui.RenderHistory(m.History))
 		} else if m.Mode == FileSelectMode {
-			m.FilesViewport.SetContent(m.renderFiles())
+			m.FilesViewport.SetContent(RenderFiles())
 		} else if m.Mode == ReviewMode {
 			m.ReviewViewport.SetContent(m.renderReviewChanges())
 		}
@@ -31,11 +34,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		if m.Mode == ChatMode {
-			return m.handleChatKeys(msg, &cmds)
+			return m.HandleChatKeys(msg, &cmds)
 		} else if m.Mode == FileSelectMode {
-			return m.handleFileKeys(msg, &cmds)
+			return m.HandleFileKeys(msg, &cmds)
 		} else if m.Mode == ReviewMode {
-			return m.handleReviewKeys(msg, &cmds)
 		}
 
 	case responseMsg:
