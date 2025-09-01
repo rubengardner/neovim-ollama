@@ -1,79 +1,69 @@
 package model
 
 import (
-	"os"
-
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"github.com/rubengardner/neovim-ollama/internal/actions"
+	"github.com/rubengardner/neovim-ollama/internal/chat"
 	"github.com/rubengardner/neovim-ollama/internal/files"
+	"github.com/rubengardner/neovim-ollama/internal/reviews"
+	"github.com/rubengardner/neovim-ollama/internal/ui"
 )
 
 type Mode int
 
 const (
 	ChatMode Mode = iota
-	FileSelectMode
+	FileExplorerMode
 	ReviewMode
+	FileSelectMode
 )
 
 type Model struct {
-	Input           textinput.Model
-	Viewport        viewport.Model
-	Width           int
-	Height          int
-	IsWaiting       bool
-	Err             error
-	Spinner         spinner.Model
-	History         []files.ChatMessage
-	Mode            Mode
-	Files           []files.FileItem
-	FilesCursor     int
-	CurrentDir      string
-	SelectedFiles   []string
-	FilesViewport   viewport.Model
-	ProposedChanges []files.FileChange
-	ReviewCursor    int
-	ReviewViewport  viewport.Model
+	Chat         chat.Model
+	FileExplorer files.Model
+	Review       reviews.Model
+	UI           ui.Model
+	Mode         Mode
 }
 
-type (
-	ResponseMsg      string
-	ErrorMsg         error
-	ReviewChangesMsg []files.FileChange
-)
-
-func InitialModel() Model {
-	ti := textinput.New()
-	ti.Placeholder = "Enter prompt (Ctrl+F for files, Ctrl+C to exit)"
-	ti.Focus()
-	ti.CharLimit = 500
-
-	vp := viewport.New(0, 0)
-	filesVp := viewport.New(0, 0)
-	reviewVp := viewport.New(0, 0)
-
-	sp := spinner.New()
-	sp.Spinner = spinner.Line
-	sp.Style = lipgloss.NewStyle()
-
-	currentDir, _ := os.Getwd()
-
+func New() Model {
 	return Model{
-		Input:           ti,
-		Viewport:        vp,
-		FilesViewport:   filesVp,
-		ReviewViewport:  reviewVp,
-		Spinner:         sp,
-		Mode:            ChatMode,
-		CurrentDir:      currentDir,
-		SelectedFiles:   []string{},
-		ProposedChanges: []files.FileChange{},
+		Chat:         chat.New(),
+		FileExplorer: files.New(),
+		Review:       reviews.New(),
+		UI:           ui.New(),
+		Mode:         ChatMode,
 	}
 }
 
+// Init initializes the model and returns an initial command
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(textinput.Blink, m.Spinner.Tick)
+	// Return a command batch that initializes all components
+	return tea.Batch(
+		m.Chat.Init(),
+		m.FileExplorer.Init(),
+		m.Review.Init(),
+		m.UI.Spinner.Tick,
+	)
+}
+
+// Update handles updates for the model
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Delegate to the actions.Update function
+	return actions.Update(m, msg)
+}
+
+// View renders the current state of the model
+func (m Model) View() string {
+	// Return different views based on the current mode
+	switch m.Mode {
+	case ChatMode:
+		return RenderChatView(m)
+	case FileExplorerMode:
+		return RenderFileExplorerView(m)
+	case ReviewMode:
+		return renderReviewView(m)
+	default:
+		return "Unknown mode"
+	}
 }

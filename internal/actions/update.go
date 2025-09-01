@@ -3,102 +3,133 @@ package actions
 import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/rubengardner/neovim-ollama/cmd/neovim-ollama/ui"
+	"github.com/rubengardner/neovim-ollama/internal/chat"
+	"github.com/rubengardner/neovim-ollama/internal/files"
 	"github.com/rubengardner/neovim-ollama/internal/model"
 	"github.com/rubengardner/neovim-ollama/internal/reviews"
 )
 
-func Update(m model.Model, msg tea.Msg) (tea.Model, tea.Cmd) {
+func Update(m model.Model, msg tea.Msg) (model.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.Width = msg.Width
-		m.Height = msg.Height
-		m.Input.Width = m.Width - 4
-		m.Viewport.Width = m.Width - 4
-		m.Viewport.Height = m.Height - 7
-		m.Viewport.YPosition = 1
-		m.FilesViewport.Width = m.Width - 4
-		m.FilesViewport.Height = m.Height - 7
-		m.FilesViewport.YPosition = 1
-		m.ReviewViewport.Width = m.Width - 4
-		m.ReviewViewport.Height = m.Height - 7
-		m.ReviewViewport.YPosition = 1
+		m.UI.Width = msg.Width
+		m.UI.Height = msg.Height
 
-		if m.Mode == model.ChatMode {
-			m.Viewport.SetContent(ui.RenderHistory(m.History))
-		} else if m.Mode == model.FileSelectMode {
-			m.FilesViewport.SetContent(ui.RenderFiles(m))
-		} else if m.Mode == model.ReviewMode {
-			m.ReviewViewport.SetContent(reviews.RenderReviewChanges())
-		}
-		return m, nil
+		cmd := updateViewportDimensions(&m, msg.Width, msg.Height)
+		return m, cmd
 
 	case tea.KeyMsg:
-		if m.Mode == model.ChatMode {
+		switch m.Mode {
+		case model.ChatMode:
 			return HandleChatKeys(m, msg, &cmds)
-		} else if m.Mode == models.FileSelectMode {
-			return HandleFileKeys(msg, &cmds)
-		} else if m.Mode == ReviewMode {
+		case model.FileExplorerMode:
+			return HandleFileKeys(m, msg, &cmds)
+		case model.ReviewMode:
+			return HandleReviewKeys(m, msg, &cmds)
 		}
 
-	case responseMsg:
-		m.IsWaiting = false
-		m.Input.SetValue("")
-		m.Input.CursorEnd()
-		m.Input.Focus()
-		if len(m.History) > 0 {
-			m.History[len(m.History)-1].Content = string(msg)
-			m.Viewport.SetContent(renderHistory(m.History))
-		}
-		return m, nil
+	case string:
+		return handleResponse(m, string(msg))
 
-	case errorMsg:
-		m.IsWaiting = false
-		m.Input.SetValue("")
-		m.Input.Focus()
-		if len(m.History) > 0 {
-			m.History[len(m.History)-1].Content = "Error: " + msg.Error()
-			m.Viewport.SetContent(renderHistory(m.History))
-		}
-		return m, nil
+	case error:
+		return handleError(m, msg)
 
-	case filesLoadedMsg:
-		m.Files = []FileItem(msg)
-		m.FilesCursor = 0
-		m.FilesViewport.SetContent(m.renderFiles())
-		return m, nil
+	case []files.FileItem:
+		return handleFilesLoaded(m, msg)
 
-	case reviewChangesMsg:
-		m.ProposedChanges = []FileChange(msg)
-		m.ReviewCursor = 0
-		m.Mode = ReviewMode
-		m.Input.Placeholder = "Space: accept, r: reject, Enter: apply all, Esc: back to chat"
-		m.ReviewViewport.SetContent(m.renderReviewChanges())
-		return m, nil
+	case []files.FileChange:
+		return reviews.HandleReviewChanges(m, msg)
 	}
 
-	if m.IsWaiting {
+	// Handle spinner updates when waiting
+	if m.UI.IsWaiting {
 		var spinCmd tea.Cmd
-		m.Spinner, spinCmd = m.Spinner.Update(msg)
+		m.UI.Spinner, spinCmd = m.UI.Spinner.Update(msg)
 		cmds = append(cmds, spinCmd)
-		m.Input.SetValue(m.Spinner.View() + " Thinking...")
-		m.Input.SetCursor(0)
-	} else {
-		if m.Mode != ChatMode {
-			var inputCmd tea.Cmd
-			m.Input, inputCmd = m.Input.Update(msg)
-			cmds = append(cmds, inputCmd)
-		}
 	}
 
-	if m.Mode == ChatMode {
-		m.Viewport, _ = m.Viewport.Update(msg)
-	} else if m.Mode == FileSelectMode {
-		m.FilesViewport, _ = m.FilesViewport.Update(msg)
-	} else if m.Mode == ReviewMode {
-		m.ReviewViewport, _ = m.ReviewViewport.Update(msg)
+	// Update
+	switch m.Mode {
+	case model.ChatMode:
+		m.Chat.Viewport, _ = m.Chat.Viewport.Update(msg)
+	case model.FileExplorerMode:
+		m.FileExplorer.Viewport, _ = m.FileExplorer.Viewport.Update(msg)
+	case model.ReviewMode:
+		m.Review.Viewport, _ = m.Review.Viewport.Update(msg)
+	}
+
+	if !m.UI.IsWaiting {
+		var inputCmd tea.Cmd
+		m.Chat.Input, inputCmd = m.Chat.Input.Update(msg)
+		cmds = append(cmds, inputCmd)
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+func updateViewportDimensions(m *model.Model, width, height int) tea.Cmd {
+	contentWidth := width - 4
+	contentHeight := height - 7
+
+	// Update chat viewport
+	m.Chat.Viewport.Width = contentWidth
+	m.Chat.Viewport.Height = contentHeight
+	m.Chat.Viewport.YPosition = 1
+	m.Chat.Input.Width = contentWidth
+
+	// Update file explorer viewport
+	m.FileExplorer.Viewport.Width = contentWidth
+	m.FileExplorer.Viewport.Height = contentHeight
+	m.FileExplorer.Viewport.YPosition = 1
+
+	// Update review viewport
+	m.Review.Viewport.Width = contentWidth
+	m.Review.Viewport.Height = contentHeight
+	m.Review.Viewport.YPosition = 1
+
+	switch m.Mode {
+	case model.ChatMode:
+		m.Chat.Viewport.SetContent(ui.RenderHistory(m.Chat.History))
+	case model.FileExplorerMode:
+		m.FileExplorer.Viewport.SetContent(files.RenderFileList(m.FileExplorer))
+	case model.ReviewMode:
+		m.Review.Viewport.SetContent(renderReviewChanges(m.Review.ProposedChanges))
+	}
+
+	return nil
+}
+
+func handleFilesLoaded(m model.Model, msg []files.FileItem) (model.Model, tea.Cmd) {
+	m.FileExplorer.Files = msg
+	m.FileExplorer.Cursor = 0
+	m.FileExplorer.Viewport.SetContent(files.RenderFileList(m.FileExplorer))
+	return m, nil
+}
+
+// Handle response from AI
+func handleResponse(m model.Model, response string) (model.Model, tea.Cmd) {
+	m.UI.IsWaiting = false
+	m.Chat.Input.SetValue("")
+	m.Chat.Input.Focus()
+
+	m.Chat.History[len(m.Chat.History)-1].Content = response
+	m.Chat.Viewport.SetContent(chat.RenderChatHistory(m.Chat.History))
+	return m, nil
+}
+
+// Handle error
+func handleError(m model.Model, err error) (model.Model, tea.Cmd) {
+	m.UI.IsWaiting = false
+	m.UI.Err = err
+	m.Chat.Input.SetValue("")
+	m.Chat.Input.Focus()
+
+	if len(m.Chat.History) > 0 {
+		m.Chat.History[len(m.Chat.History)-1].Content = "Error: " + err.Error()
+		m.Chat.Viewport.SetContent(chat.RenderChatHistory(m.Chat.History))
+	}
+
+	return m, nil
 }

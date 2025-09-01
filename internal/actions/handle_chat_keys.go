@@ -5,61 +5,64 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/rubengardner/neovim-ollama/cmd/neovim-ollama/ui"
 	"github.com/rubengardner/neovim-ollama/internal/files"
 	"github.com/rubengardner/neovim-ollama/internal/model"
 )
 
-func HandleChatKeys(m model.Model, msg tea.KeyMsg, cmds *[]tea.Cmd) (tea.Model, tea.Cmd) {
+func HandleChatKeys(m model.Model, msg tea.KeyMsg, cmds *[]tea.Cmd) (m.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "esc":
 		return m, tea.Quit
+
 	case "ctrl+f":
-		m.Mode = model.FileSelectMode
-		m.Input.Placeholder = "Space: select, Enter: open folder, Esc: back to chat"
-		*cmds = append(*cmds, files.LoadFiles(m.CurrentDir))
+		// Switch to file explorer mode
+		m.Mode = model.FileExplorerMode
+		m.Chat.Input.Placeholder = "Space: select, Enter: open folder, Esc: back to chat"
+		*cmds = append(*cmds, loadFiles(m.FileExplorer.CurrentDir))
 		return m, tea.Batch(*cmds...)
+
 	case "enter":
-		text := strings.TrimSpace(m.Input.Value())
-		if text == "" || m.IsWaiting {
+		text := strings.TrimSpace(m.Chat.Input.Value())
+		if text == "" || m.UI.IsWaiting {
 			return m, nil
 		}
 
-		m.IsWaiting = true
-		m.Input.SetValue("")
+		// Set waiting state
+		m.UI.IsWaiting = true
+		m.Chat.Input.SetValue("")
 
-		contextSummary := files.BuildFileContextSummary(&m)
-		fullContext := files.BuildFileContext(&m)
+		// Build context from selected files
+		contextSummary := buildFileContextSummary(m.FileExplorer.SelectedFiles)
+		fullContext := buildFileContext(m.FileExplorer.SelectedFiles)
 
+		// Add user message with summary for display
 		userDisplayContent := text
 		if contextSummary != "" {
 			userDisplayContent = fmt.Sprintf("%s\n\n%s", text, contextSummary)
 		}
 
+		// Create full content for AI with file contents
 		userAIContent := text
 		if fullContext != "" {
 			userAIContent = fmt.Sprintf("%s\n\n--- Context from selected files ---\n%s", text, fullContext)
 		}
 
-		m.History = append(m.History,
+		// Add to history with display version
+		m.Chat.History = append(m.Chat.History,
 			files.ChatMessage{Role: "user", Content: userDisplayContent},
 			files.ChatMessage{Role: "assistant", Content: ""})
-		m.Viewport.SetContent(ui.RenderHistory(m))
+		m.Chat.Viewport.SetContent(renderChatHistory(m.Chat.History))
 
-		*cmds = append(*cmds, ui.FetchResponseWithContext(userAIContent, m.History), m.Spinner.Tick)
+		// Send to AI
+		*cmds = append(*cmds, fetchResponseWithContext(userAIContent, m.Chat.History), m.UI.Spinner.Tick)
 		return m, tea.Batch(*cmds...)
+
 	case "up":
-		m.Viewport.ScrollUp(1)
+		m.Chat.Viewport.ScrollUp(1)
+
 	case "down":
-		m.Viewport.ScrollDown(1)
-	default:
-		if !m.IsWaiting {
-			var inputCmd tea.Cmd
-			m.Input, inputCmd = m.Input.Update(msg)
-			if inputCmd != nil {
-				*cmds = append(*cmds, inputCmd)
-			}
-		}
+		m.Chat.Viewport.ScrollDown(1)
 	}
+
 	return m, nil
 }

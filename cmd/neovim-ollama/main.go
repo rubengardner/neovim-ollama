@@ -4,11 +4,12 @@ import (
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/rubengardner/neovim-ollama/cmd/neovim-ollama/ui"
+	"github.com/rubengardner/neovim-ollama/internal/model"
 )
 
 func main() {
-	p := tea.NewProgram(ui.InitialModel())
+	m := model.New()
+	p := tea.NewProgram(m)
 	_, err := p.Run()
 	if err != nil {
 		fmt.Println("Error running program:", err)

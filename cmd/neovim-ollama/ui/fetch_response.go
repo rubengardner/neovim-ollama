@@ -4,11 +4,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ollama/ollama/api"
 	"github.com/rubengardner/neovim-ollama/cmd/neovim-ollama/ollama"
-	"github.com/rubengardner/neovim-ollama/internal/model"
+	"github.com/rubengardner/neovim-ollama/internal/files"
 )
 
-func FetchResponseWithContext(fullPrompt string, m []model.Model) tea.Cmd {
-	displayHistory := m.History
+func FetchResponseWithContext(fullPrompt string, displayHistory []files.ChatMessage) tea.Cmd {
 	return func() tea.Msg {
 		messages := []api.Message{
 			{Role: "system", Content: "You are a helpful assistant."},
